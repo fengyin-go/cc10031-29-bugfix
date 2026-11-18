@@ -1,6 +1,15 @@
 import { request } from './client'
 import { moduleMeta } from '@/data/modules'
-import type { ActionResult, EntryRow, OverviewResult, PageResult } from '@/data/types'
+import type {
+  ActionResult,
+  AllocationReceipt,
+  EntryRow,
+  OverviewResult,
+  PageResult,
+  ProxyCandidate,
+  ProxyPoolStats,
+  SwitchPlanResult,
+} from '@/data/types'
 
 export { moduleMeta }
 
@@ -104,5 +113,51 @@ export async function triggerPipeline(lifecycle: string): Promise<Record<string,
 export async function loadRecoveryStats(): Promise<Record<string, unknown>> {
   const response = await request('/api/recovery')
   if (!response.ok) throw new Error('恢复状态查询失败')
+  return await response.json()
+}
+
+/** 代理防护联动：批量按地域/协议查询健康候选与探测状态 */
+export async function loadProxyCandidates(
+  regions: string[] = [],
+  protocols: string[] = [],
+): Promise<{ candidates: ProxyCandidate[]; total: number; stats: ProxyPoolStats }> {
+  const query = new URLSearchParams()
+  regions.forEach((r) => query.append('regions', r))
+  protocols.forEach((p) => query.append('protocols', p))
+  const response = await request(`/api/proxy-ops/candidates?${query.toString()}`)
+  if (!response.ok) throw new Error('健康候选查询失败')
+  return await response.json()
+}
+
+/** 代理防护联动：节点池统计（在线与健康同口径） */
+export async function loadProxyPoolStats(): Promise<ProxyPoolStats> {
+  const response = await request('/api/proxy-ops/pool-stats')
+  if (!response.ok) throw new Error('节点池统计读取失败')
+  return await response.json()
+}
+
+/** 代理防护联动：提交代理切换计划（同一 plan_id 重复提交只生效一次） */
+export async function submitSwitchPlan(payload: {
+  plan_id?: string
+  flows: string[]
+  regions?: string[]
+  protocols?: string[]
+  strategy_ids?: number[]
+}): Promise<SwitchPlanResult> {
+  const response = await request('/api/proxy-ops/switch-plan', {
+    method: 'POST',
+    body: JSON.stringify(payload),
+  })
+  return await response.json()
+}
+
+/** 代理防护联动：分配结果清单（唯一回执） */
+export async function loadProxyAllocations(): Promise<{
+  receipts: AllocationReceipt[]
+  receipt_count: number
+  applied_plans: string[]
+}> {
+  const response = await request('/api/proxy-ops/allocations')
+  if (!response.ok) throw new Error('分配结果读取失败')
   return await response.json()
 }

@@ -320,9 +320,16 @@ def pipeline_element_to_output(elem_id: int | None = None) -> PipelineResult:
 # ---------------------------------------------------------------------------
 
 def pipeline_proxy_anti_block(proxy_id: int | None = None) -> PipelineResult:
-    """代理路由 → 频控策略 → 反封锁 联动链路。"""
+    """代理路由 → 频控策略 → 反封锁 联动链路。
+
+    健康节点与候选池统一走 ProxyRouterService 的 status 口径，
+    在线节点（含暂无探测数据的节点）不会在链路中消失。
+    """
+    from app.services.proxy_router import ProxyRouterService
+
     result = PipelineResult(pipeline="proxy_router→rate_limiter→anti_block", ok=True)
     vault = DirtyDataVault()
+    proxy_svc = ProxyRouterService()
 
     # 1) 代理路由
     proxies = store.rows("proxy_router")
@@ -336,6 +343,9 @@ def pipeline_proxy_anti_block(proxy_id: int | None = None) -> PipelineResult:
     result.add_step("proxy_router", proxies[0])
     result.data["proxy_online"] = len(online)
     result.data["proxy_total"] = len(proxies)
+    # 健康节点数与候选池同一字段口径，在线数与健康数不再对不上
+    result.data["proxy_healthy"] = len(proxy_svc.get_healthy_nodes())
+    result.data["proxy_candidates"] = len(proxy_svc.get_candidate_pool())
     if not online:
         result.add_error("无在线代理节点，无法继续")
         result.ok = False
@@ -368,6 +378,13 @@ def pipeline_proxy_anti_block(proxy_id: int | None = None) -> PipelineResult:
                 result.data["proxy_switch_needed"] = True
     result.data["block_active"] = sum(1 for b in blocks if b.get("status") == "已启用")
     result.data["block_triggered"] = sum(1 for b in blocks if b.get("status") == "触发封锁")
+
+    # 4) 封锁触发时按处理项生成代理切换计划草案（唯一分配，不重复占用节点）
+    if result.data.get("proxy_switch_needed"):
+        blocked_flows = [b.get("策略名称") for b in blocks if b.get("status") == "触发封锁"]
+        plan = proxy_svc.build_switch_plan(blocked_flows)
+        result.data["switch_plan"] = plan
+        result.data["switch_plan_terminal"] = plan["terminal_state"]
 
     result.dirty = vault.list_all()
     return result

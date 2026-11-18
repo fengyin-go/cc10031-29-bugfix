@@ -29,3 +29,12 @@ class EntryPayload(BaseModel):
 class ActionPayload(BaseModel):
     action: str
     remark: str | None = None
+
+
+class SwitchPlanPayload(BaseModel):
+    """代理切换计划提交：处理项（流程）批量分配健康候选节点。"""
+    plan_id: str | None = None
+    flows: list[str] = Field(default_factory=list)
+    regions: list[str] = Field(default_factory=list)
+    protocols: list[str] = Field(default_factory=list)
+    strategy_ids: list[int] | None = None
